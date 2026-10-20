@@ -9,11 +9,14 @@
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
   <style>
-    * { box-sizing: border-box; }
+    * {
+      box-sizing: border-box;
+    }
 
     body {
       margin: 0;
       padding: 20px;
+      min-height: 100vh;
       background: #0b1220;
       color: #f1f5f9;
       font-family: Arial, Tahoma, sans-serif;
@@ -21,27 +24,41 @@
     }
 
     .card {
+      width: 100%;
       max-width: 500px;
       margin: 15px auto;
       padding: 20px;
       background: #111c2e;
       border: 1px solid #243449;
       border-radius: 18px;
+      box-shadow: 0 15px 40px rgba(0, 0, 0, 0.2);
     }
 
-    h2 { color: #38bdf8; }
+    h2 {
+      color: #38bdf8;
+      margin-bottom: 8px;
+    }
+
+    h3 {
+      margin-top: 0;
+    }
 
     #reader {
       width: 100%;
       margin: 20px auto;
+      overflow: hidden;
+      border-radius: 12px;
     }
 
     #status {
       padding: 12px;
+      min-height: 50px;
       background: #0b1220;
+      border: 1px solid #243449;
       border-radius: 10px;
       line-height: 1.8;
       overflow-wrap: anywhere;
+      white-space: pre-line;
     }
 
     button {
@@ -54,12 +71,26 @@
       color: white;
       font-size: 16px;
       font-weight: bold;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
     }
 
     .hint {
       color: #94a3b8;
       font-size: 13px;
       line-height: 1.8;
+    }
+
+    .success {
+      color: #4ade80;
+    }
+
+    .error {
+      color: #f87171;
     }
   </style>
 </head>
@@ -70,110 +101,157 @@
     <h3>ماسح QR لتسجيل الحضور</h3>
 
     <p class="hint">
-      قرّب الرمز من الكاميرا، وثبّت الهاتف وتأكد من وضوح الإضاءة.
+      وجّه الكاميرا نحو رمز QR وتأكد من وضوح الرمز والإضاءة.
     </p>
 
     <div id="reader"></div>
 
-    <p id="status">جارٍ تجهيز الماسح...</p>
+    <p id="status">اضغط على الزر لتشغيل الكاميرا.</p>
 
     <button id="startBtn" type="button">
       تشغيل الكاميرا
     </button>
+
+    <button id="closeBtn" type="button" hidden>
+      إغلاق الماسح
+    </button>
   </main>
 
   <script>
+    const SCANNER_ORIGIN = window.location.origin;
+
     const statusBox = document.getElementById("status");
     const startBtn = document.getElementById("startBtn");
+    const closeBtn = document.getElementById("closeBtn");
 
     let scanner = null;
     let started = false;
     let processing = false;
+    let scanSent = false;
+
+    function setStatus(text, type) {
+      statusBox.textContent = text;
+      statusBox.className = type || "";
+    }
 
     function extractToken(text) {
       const value = String(text || "").trim();
+
+      if (!value) return "";
 
       try {
         const url = new URL(value);
         const token = url.searchParams.get("token");
 
-        if (token) return token.trim();
+        if (token) {
+          return token.trim();
+        }
 
-        // لو الرمز نفسه Token وليس رابطًا
+        // يسمح برابط مباشر للموظف يحتوي على الرمز
+        return "";
+      } catch (error) {
+        // يقبل Token مباشرًا فقط إذا كان بصيغة متوقعة
         if (/^[a-zA-Z0-9_-]{16,128}$/.test(value)) {
           return value;
         }
 
         return "";
-      } catch (_) {
-        return /^[a-zA-Z0-9_-]{16,128}$/.test(value)
-          ? value
-          : "";
       }
     }
 
     async function handleScan(decodedText) {
-      if (processing) return;
+      if (processing || scanSent) return;
 
       processing = true;
 
-      statusBox.textContent = "تمت قراءة QR بنجاح. جارٍ فحص محتواه...";
+      setStatus(
+        "تمت قراءة QR بنجاح.\nجارٍ فحص محتوى الرمز...",
+        ""
+      );
 
       const token = extractToken(decodedText);
 
       if (!token) {
-        statusBox.textContent =
-          "الكاميرا قرأت QR، لكن محتواه ليس Token صالحًا أو رابطًا يحتوي على ?token=.\n" +
-          "راجع محتوى QR الذي تستخدمه.";
+        setStatus(
+          "تمت قراءة QR، لكن لم يتم العثور على Token صالح.\nتأكد أنك تستخدم QR الخاص بالموظف.",
+          "error"
+        );
+
         processing = false;
         return;
       }
 
       if (!window.opener || window.opener.closed) {
-        statusBox.textContent =
-          "تمت قراءة الرمز، لكن صفحة الحضور الأصلية غير مفتوحة.\n" +
-          "افتح الماسح من زر صفحة OPS-GRID.";
+        setStatus(
+          "تمت قراءة الرمز، لكن صفحة الحضور الأصلية غير مفتوحة.\nافتح الماسح من زر OPS-GRID.",
+          "error"
+        );
+
         processing = false;
         return;
       }
 
-      statusBox.textContent =
-        "تمت القراءة. جارٍ إرسال الرمز لصفحة الحضور...";
-
       try {
-        if (scanner && started) {
-          await scanner.stop();
-          started = false;
+        setStatus(
+          "تم التحقق من محتوى الرمز.\nجارٍ إرسال Token إلى صفحة الحضور...",
+          ""
+        );
+
+        /*
+         * نستخدم "*" لتجاوز مشكلة اختلاف نطاق صفحة Apps Script.
+         * صفحة Index.html تتحقق من event.origin قبل قبول الرسالة.
+         */
+        window.opener.postMessage(
+          {
+            type: "EMPLOYEE_QR_SCANNED",
+            token: token
+          },
+          "*"
+        );
+
+        scanSent = true;
+
+        try {
+          if (scanner && started) {
+            await scanner.stop();
+            started = false;
+          }
+        } catch (error) {
+          console.warn("Scanner stop error:", error);
         }
+
+        setStatus(
+          "تم إرسال الرمز إلى صفحة الحضور.\nارجع إلى OPS-GRID وانتظر التحقق من الموظف.",
+          "success"
+        );
+
+        startBtn.hidden = true;
+        closeBtn.hidden = false;
+
       } catch (error) {
-        console.warn("Scanner stop:", error);
+        processing = false;
+
+        setStatus(
+          "تعذر إرسال الرمز إلى صفحة الحضور: " +
+          (error.message || String(error)),
+          "error"
+        );
       }
-
-      window.opener.postMessage(
-        {
-          type: "EMPLOYEE_QR_SCANNED",
-          token: token
-        },
-        "https://script.google.com"
-      );
-
-      statusBox.textContent =
-        "تم إرسال الرمز. ارجع إلى صفحة الحضور.";
-
-      window.close();
     }
 
-    startBtn.addEventListener("click", async () => {
+    async function startCamera() {
       if (started) return;
 
       if (typeof Html5Qrcode === "undefined") {
-        statusBox.textContent =
-          "تعذر تحميل مكتبة قراءة QR. تأكد من الإنترنت وأعد تحميل الصفحة.";
+        setStatus(
+          "تعذر تحميل مكتبة QR.\nتأكد من اتصال الإنترنت ثم أعد تحميل الصفحة.",
+          "error"
+        );
         return;
       }
 
       startBtn.disabled = true;
-      statusBox.textContent = "جارٍ تشغيل الكاميرا...";
+      setStatus("جارٍ تشغيل الكاميرا...", "");
 
       try {
         scanner = new Html5Qrcode("reader", {
@@ -189,31 +267,68 @@
           {
             fps: 12,
             aspectRatio: 1
-            // بدون qrbox لتجربة القراءة على كامل الصورة
           },
           handleScan,
           function() {
-            // عدم عرض خطأ مع كل إطار لا يحتوي على QR.
+            // تجاهل الإطارات التي لا تحتوي على QR
           }
         );
 
         started = true;
-        statusBox.textContent =
-          "الكاميرا تعمل والماسح يبحث عن QR.\n" +
-          "لو لم يلتقط الرمز، قرّبه وجرّب تحسين الإضاءة.";
+        processing = false;
+        scanSent = false;
+
+        setStatus(
+          "الكاميرا تعمل والماسح يبحث عن QR.\nوجّه الكاميرا نحو الرمز.",
+          "success"
+        );
 
         startBtn.textContent = "الكاميرا تعمل";
+        closeBtn.hidden = false;
 
       } catch (error) {
         scanner = null;
         started = false;
         startBtn.disabled = false;
 
-        statusBox.textContent =
-          "تعذر تشغيل الماسح: " +
-          (error.message || String(error));
+        setStatus(
+          "تعذر تشغيل الكاميرا:\n" +
+          (error.message || String(error)),
+          "error"
+        );
       }
-    });
+    }
+
+    async function closeScanner() {
+      try {
+        if (scanner && started) {
+          await scanner.stop();
+          started = false;
+        }
+      } catch (error) {
+        console.warn("Scanner close error:", error);
+      }
+
+      if (scanner) {
+        try {
+          scanner.clear();
+        } catch (error) {
+          console.warn("Scanner clear error:", error);
+        }
+      }
+
+      if (window.opener && !window.opener.closed) {
+        window.close();
+      } else {
+        setStatus(
+          "تم إيقاف الماسح. يمكنك إغلاق الصفحة.",
+          ""
+        );
+      }
+    }
+
+    startBtn.addEventListener("click", startCamera);
+    closeBtn.addEventListener("click", closeScanner);
   </script>
 </body>
 </html>
