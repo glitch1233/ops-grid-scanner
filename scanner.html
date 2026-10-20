@@ -112,6 +112,10 @@
       تشغيل الكاميرا
     </button>
 
+    <button id="testSoundBtn" type="button">
+      اختبار الصوت
+    </button>
+
     <button id="closeBtn" type="button" hidden>
       إغلاق الماسح
     </button>
@@ -120,6 +124,7 @@
   <script>
     const statusBox = document.getElementById("status");
     const startBtn = document.getElementById("startBtn");
+    const testSoundBtn = document.getElementById("testSoundBtn");
     const closeBtn = document.getElementById("closeBtn");
 
     let scanner = null;
@@ -133,41 +138,63 @@
       statusBox.className = type || "";
     }
 
-    // صوت إلكتروني قصير عند قراءة QR
+    // تفعيل الصوت بعد تفاعل المستخدم مع الصفحة
+    async function enableScannerAudio() {
+      const AudioContextClass =
+        window.AudioContext || window.webkitAudioContext;
+
+      if (!AudioContextClass) {
+        throw new Error("المتصفح لا يدعم تشغيل الصوت.");
+      }
+
+      if (!audioContext || audioContext.state === "closed") {
+        audioContext = new AudioContextClass();
+      }
+
+      if (audioContext.state === "suspended") {
+        await audioContext.resume();
+      }
+
+      if (audioContext.state !== "running") {
+        throw new Error("الصوت غير مفعّل في المتصفح.");
+      }
+    }
+
+    // صوت إلكتروني قصير عند اكتشاف QR
     async function playQRBeep() {
       try {
-        const AudioContextClass =
-          window.AudioContext || window.webkitAudioContext;
+        await enableScannerAudio();
 
-        if (!AudioContextClass) return;
-
-        if (!audioContext || audioContext.state === "closed") {
-          audioContext = new AudioContextClass();
-        }
-
-        if (audioContext.state === "suspended") {
-          await audioContext.resume();
-        }
-
+        const now = audioContext.currentTime;
         const oscillator = audioContext.createOscillator();
         const gain = audioContext.createGain();
-        const now = audioContext.currentTime;
 
-        oscillator.type = "sine";
-        oscillator.frequency.setValueAtTime(1250, now);
+        oscillator.type = "square";
+        oscillator.frequency.setValueAtTime(1400, now);
 
         gain.gain.setValueAtTime(0.0001, now);
-        gain.gain.exponentialRampToValueAtTime(0.25, now + 0.015);
-        gain.gain.setValueAtTime(0.25, now + 0.09);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+        gain.gain.exponentialRampToValueAtTime(0.25, now + 0.02);
+        gain.gain.setValueAtTime(0.25, now + 0.10);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
 
         oscillator.connect(gain);
         gain.connect(audioContext.destination);
 
+        oscillator.onended = function() {
+          oscillator.disconnect();
+          gain.disconnect();
+        };
+
         oscillator.start(now);
-        oscillator.stop(now + 0.19);
+        oscillator.stop(now + 0.23);
+
       } catch (error) {
-        console.warn("QR beep error:", error);
+        console.error("Audio error:", error);
+
+        setStatus(
+          "تعذر تشغيل الصوت. اضغط اختبار الصوت وتأكد من مستوى صوت الوسائط.",
+          "error"
+        );
       }
     }
 
@@ -178,13 +205,7 @@
 
       try {
         const url = new URL(value);
-        const token = url.searchParams.get("token");
-
-        if (token) {
-          return token.trim();
-        }
-
-        return "";
+        return (url.searchParams.get("token") || "").trim();
       } catch (error) {
         if (/^[a-zA-Z0-9_-]{16,128}$/.test(value)) {
           return value;
@@ -199,8 +220,8 @@
 
       processing = true;
 
-      // إصدار صوت بمجرد اكتشاف QR
-      playQRBeep();
+      // يصدر الصوت فور اكتشاف رمز QR
+      await playQRBeep();
 
       setStatus(
         "تمت قراءة QR بنجاح.\nجارٍ فحص محتوى الرمز...",
@@ -285,20 +306,11 @@
       }
 
       startBtn.disabled = true;
-      setStatus("جارٍ تشغيل الكاميرا...", "");
+      setStatus("جارٍ تفعيل الصوت وتشغيل الكاميرا...", "");
 
       try {
-        // تهيئة الصوت بعد ضغط المستخدم على زر التشغيل
-        const AudioContextClass =
-          window.AudioContext || window.webkitAudioContext;
-
-        if (AudioContextClass && !audioContext) {
-          audioContext = new AudioContextClass();
-        }
-
-        if (audioContext && audioContext.state === "suspended") {
-          await audioContext.resume();
-        }
+        // يجب تنفيذ ذلك بعد ضغط المستخدم على الزر
+        await enableScannerAudio();
 
         scanner = new Html5Qrcode("reader", {
           verbose: false,
@@ -325,7 +337,7 @@
         scanSent = false;
 
         setStatus(
-          "الكاميرا تعمل والماسح يبحث عن QR.\nوجّه الكاميرا نحو الرمز.",
+          "الكاميرا تعمل والماسح يبحث عن QR.\nيمكنك الضغط على اختبار الصوت للتأكد من عمله.",
           "success"
         );
 
@@ -338,7 +350,25 @@
         startBtn.disabled = false;
 
         setStatus(
-          "تعذر تشغيل الكاميرا:\n" +
+          "تعذر تشغيل الكاميرا أو الصوت:\n" +
+          (error.message || String(error)),
+          "error"
+        );
+      }
+    }
+
+    async function testSound() {
+      try {
+        await enableScannerAudio();
+        await playQRBeep();
+
+        setStatus(
+          "تم تنفيذ اختبار الصوت. إذا لم تسمع شيئًا، ارفع صوت الوسائط وأوقف الوضع الصامت.",
+          "success"
+        );
+      } catch (error) {
+        setStatus(
+          "تعذر تفعيل الصوت: " +
           (error.message || String(error)),
           "error"
         );
@@ -379,6 +409,7 @@
     }
 
     startBtn.addEventListener("click", startCamera);
+    testSoundBtn.addEventListener("click", testSound);
     closeBtn.addEventListener("click", closeScanner);
   </script>
 </body>
