@@ -4,6 +4,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1220">
+
   <title>OPS-GRID | QR Scanner</title>
 
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
@@ -15,7 +17,7 @@
 
     body {
       margin: 0;
-      padding: 20px;
+      padding: 16px;
       min-height: 100vh;
       background: #0b1220;
       color: #f1f5f9;
@@ -25,64 +27,54 @@
 
     .card {
       width: 100%;
-      max-width: 500px;
-      margin: 15px auto;
+      max-width: 520px;
+      margin: 12px auto;
       padding: 20px;
       background: #111c2e;
       border: 1px solid #243449;
       border-radius: 18px;
-      box-shadow: 0 15px 40px rgba(0, 0, 0, 0.2);
+      box-shadow: 0 15px 40px rgba(0, 0, 0, .25);
     }
 
     h2 {
+      margin: 0 0 8px;
       color: #38bdf8;
-      margin-bottom: 8px;
+      letter-spacing: 1px;
     }
 
     h3 {
-      margin-top: 0;
-    }
-
-    #reader {
-      width: 100%;
-      margin: 20px auto;
-      overflow: hidden;
-      border-radius: 12px;
-    }
-
-    #status {
-      padding: 12px;
-      min-height: 50px;
-      background: #0b1220;
-      border: 1px solid #243449;
-      border-radius: 10px;
-      line-height: 1.8;
-      overflow-wrap: anywhere;
-      white-space: pre-line;
-    }
-
-    button {
-      width: 100%;
-      padding: 14px;
-      margin-top: 10px;
-      border: 0;
-      border-radius: 10px;
-      background: #0284c7;
-      color: white;
-      font-size: 16px;
-      font-weight: bold;
-      cursor: pointer;
-    }
-
-    button:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
+      margin: 0 0 12px;
+      font-size: 18px;
     }
 
     .hint {
       color: #94a3b8;
       font-size: 13px;
+      line-height: 1.9;
+    }
+
+    #reader {
+      width: 100%;
+      margin: 18px auto;
+      overflow: hidden;
+      border-radius: 12px;
+      background: #050b14;
+    }
+
+    #reader video {
+      object-fit: cover;
+    }
+
+    #status {
+      min-height: 54px;
+      padding: 12px;
+      background: #0b1220;
+      border: 1px solid #243449;
+      border-radius: 10px;
       line-height: 1.8;
+      font-size: 14px;
+      overflow-wrap: anywhere;
+      white-space: pre-line;
     }
 
     .success {
@@ -91,6 +83,35 @@
 
     .error {
       color: #f87171;
+    }
+
+    button {
+      display: block;
+      width: 100%;
+      margin-top: 10px;
+      padding: 14px;
+      border: 0;
+      border-radius: 10px;
+      background: #0284c7;
+      color: #fff;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      background: #26364c;
+    }
+
+    button:disabled {
+      opacity: .55;
+      cursor: not-allowed;
+    }
+
+    .footer {
+      margin-top: 18px;
+      color: #64748b;
+      font-size: 11px;
     }
   </style>
 </head>
@@ -101,24 +122,27 @@
     <h3>ماسح QR لتسجيل الحضور</h3>
 
     <p class="hint">
-      وجّه الكاميرا نحو رمز QR وتأكد من وضوح الرمز والإضاءة.
+      وجّه الكاميرا نحو رمز QR.
+      للحصول على أفضل قراءة، اجعل الرمز واضحًا وداخل إطار الكاميرا.
     </p>
 
     <div id="reader"></div>
 
-    <p id="status">اضغط على الزر لتشغيل الكاميرا.</p>
+    <p id="status">اضغط على تشغيل الكاميرا للبدء.</p>
 
     <button id="startBtn" type="button">
       تشغيل الكاميرا
     </button>
 
-    <button id="testSoundBtn" type="button">
+    <button id="testSoundBtn" class="secondary" type="button">
       اختبار الصوت
     </button>
 
-    <button id="closeBtn" type="button" hidden>
-      إغلاق الماسح
+    <button id="closeBtn" class="secondary" type="button" hidden>
+      إيقاف الماسح
     </button>
+
+    <div class="footer">OPS-GRID | QR Attendance</div>
   </main>
 
   <script>
@@ -133,9 +157,9 @@
     let scanSent = false;
     let audioContext = null;
 
-    function setStatus(text, type) {
-      statusBox.textContent = text;
-      statusBox.className = type || "";
+    function setStatus(message, type = "") {
+      statusBox.textContent = message;
+      statusBox.className = type;
     }
 
     // تفعيل الصوت بعد تفاعل المستخدم مع الصفحة
@@ -160,7 +184,7 @@
       }
     }
 
-    // صوت إلكتروني قصير عند اكتشاف QR
+    // صوت قصير عند قراءة QR
     async function playQRBeep() {
       try {
         await enableScannerAudio();
@@ -180,59 +204,56 @@
         oscillator.connect(gain);
         gain.connect(audioContext.destination);
 
-        oscillator.onended = function() {
+        oscillator.onended = () => {
           oscillator.disconnect();
           gain.disconnect();
         };
 
         oscillator.start(now);
         oscillator.stop(now + 0.23);
-
       } catch (error) {
         console.error("Audio error:", error);
-
-        setStatus(
-          "تعذر تشغيل الصوت. اضغط اختبار الصوت وتأكد من مستوى صوت الوسائط.",
-          "error"
-        );
       }
     }
 
-    function extractToken(text) {
-      const value = String(text || "").trim();
+    // استخراج Token سواء كان QR يحتوي على رابط أو Token مباشر
+    function extractToken(decodedText) {
+      const value = String(decodedText || "").trim();
 
       if (!value) return "";
 
       try {
         const url = new URL(value);
-        return (url.searchParams.get("token") || "").trim();
-      } catch (error) {
-        if (/^[a-zA-Z0-9_-]{16,128}$/.test(value)) {
-          return value;
-        }
+        const token = url.searchParams.get("token");
 
-        return "";
+        if (token) {
+          return token.trim();
+        }
+      } catch (error) {
+        // قد يكون المحتوى Token مباشرًا وليس رابطًا
       }
+
+      if (/^[a-zA-Z0-9_-]{16,128}$/.test(value)) {
+        return value;
+      }
+
+      return "";
     }
 
+    // استقبال نتيجة المسح
     async function handleScan(decodedText) {
       if (processing || scanSent) return;
 
       processing = true;
 
-      // يصدر الصوت فور اكتشاف رمز QR
+      // الصوت يصدر فور اكتشاف الرمز
       await playQRBeep();
-
-      setStatus(
-        "تمت قراءة QR بنجاح.\nجارٍ فحص محتوى الرمز...",
-        ""
-      );
 
       const token = extractToken(decodedText);
 
       if (!token) {
         setStatus(
-          "تمت قراءة QR، لكن لم يتم العثور على Token صالح.\nتأكد أنك تستخدم QR الخاص بالموظف.",
+          "تم اكتشاف QR، لكن محتواه لا يحتوي على Token صالح.\nتأكد أنك تمسح رمز الموظف الصحيح.",
           "error"
         );
 
@@ -242,7 +263,7 @@
 
       if (!window.opener || window.opener.closed) {
         setStatus(
-          "تمت قراءة الرمز، لكن صفحة الحضور الأصلية غير مفتوحة.\nافتح الماسح من زر OPS-GRID.",
+          "تمت قراءة الرمز، لكن صفحة OPS-GRID الأصلية غير متصلة.\nافتح الماسح من داخل صفحة الحضور نفسها.",
           "error"
         );
 
@@ -251,10 +272,7 @@
       }
 
       try {
-        setStatus(
-          "تمت قراءة الرمز.\nجارٍ إرسال Token إلى صفحة الحضور...",
-          ""
-        );
+        setStatus("تمت قراءة الرمز، جارٍ إرساله إلى OPS-GRID...", "");
 
         window.opener.postMessage(
           {
@@ -271,35 +289,34 @@
             await scanner.stop();
             started = false;
           }
-        } catch (error) {
-          console.warn("Scanner stop error:", error);
+        } catch (stopError) {
+          console.warn("Scanner stop error:", stopError);
         }
 
         setStatus(
-          "تم إرسال الرمز إلى صفحة الحضور.\nارجع إلى OPS-GRID وانتظر التحقق من الموظف.",
+          "تم إرسال الرمز بنجاح.\nارجع إلى صفحة OPS-GRID للتحقق من بيانات الموظف.",
           "success"
         );
 
         startBtn.hidden = true;
         closeBtn.hidden = false;
-
       } catch (error) {
         processing = false;
 
         setStatus(
-          "تعذر إرسال الرمز إلى صفحة الحضور:\n" +
-          (error.message || String(error)),
+          "تعذر إرسال الرمز:\n" + (error.message || String(error)),
           "error"
         );
       }
     }
 
+    // تشغيل الكاميرا بإعدادات قراءة سريعة ومساحة مسح كبيرة
     async function startCamera() {
       if (started) return;
 
       if (typeof Html5Qrcode === "undefined") {
         setStatus(
-          "تعذر تحميل مكتبة QR.\nتأكد من اتصال الإنترنت ثم أعد تحميل الصفحة.",
+          "تعذر تحميل مكتبة QR.\nتحقق من اتصال الإنترنت ثم أعد تحميل الصفحة.",
           "error"
         );
         return;
@@ -309,7 +326,6 @@
       setStatus("جارٍ تفعيل الصوت وتشغيل الكاميرا...", "");
 
       try {
-        // يجب تنفيذ ذلك بعد ضغط المستخدم على الزر
         await enableScannerAudio();
 
         scanner = new Html5Qrcode("reader", {
@@ -323,12 +339,25 @@
         await scanner.start(
           { facingMode: "environment" },
           {
-            fps: 12,
-            aspectRatio: 1
+            fps: 25,
+
+            qrbox: function(viewfinderWidth, viewfinderHeight) {
+              const size = Math.floor(
+                Math.min(viewfinderWidth, viewfinderHeight) * 0.85
+              );
+
+              return {
+                width: size,
+                height: size
+              };
+            },
+
+            aspectRatio: 1,
+            disableFlip: false
           },
           handleScan,
           function() {
-            // تجاهل الإطارات التي لا تحتوي على QR
+            // تجاهل الإطارات التي لا تحتوي على QR قابل للقراءة
           }
         );
 
@@ -337,21 +366,19 @@
         scanSent = false;
 
         setStatus(
-          "الكاميرا تعمل والماسح يبحث عن QR.\nيمكنك الضغط على اختبار الصوت للتأكد من عمله.",
+          "الكاميرا تعمل والماسح يبحث عن QR.\nضع الرمز داخل الإطار وثبّت الهاتف لحظة.",
           "success"
         );
 
         startBtn.textContent = "الكاميرا تعمل";
         closeBtn.hidden = false;
-
       } catch (error) {
         scanner = null;
         started = false;
         startBtn.disabled = false;
 
         setStatus(
-          "تعذر تشغيل الكاميرا أو الصوت:\n" +
-          (error.message || String(error)),
+          "تعذر تشغيل الكاميرا:\n" + (error.message || String(error)),
           "error"
         );
       }
@@ -363,26 +390,25 @@
         await playQRBeep();
 
         setStatus(
-          "تم تنفيذ اختبار الصوت. إذا لم تسمع شيئًا، ارفع صوت الوسائط وأوقف الوضع الصامت.",
+          "تم تنفيذ اختبار الصوت.\nإذا لم تسمع صوتًا، ارفع صوت الوسائط وتأكد من عدم كتم المتصفح.",
           "success"
         );
       } catch (error) {
         setStatus(
-          "تعذر تفعيل الصوت: " +
-          (error.message || String(error)),
+          "تعذر تفعيل الصوت:\n" + (error.message || String(error)),
           "error"
         );
       }
     }
 
-    async function closeScanner() {
+    async function stopCamera() {
       try {
         if (scanner && started) {
           await scanner.stop();
           started = false;
         }
       } catch (error) {
-        console.warn("Scanner close error:", error);
+        console.warn("Scanner stop error:", error);
       }
 
       if (scanner) {
@@ -405,12 +431,13 @@
         window.close();
       } else {
         setStatus("تم إيقاف الماسح. يمكنك إغلاق الصفحة.", "");
+        closeBtn.hidden = true;
       }
     }
 
     startBtn.addEventListener("click", startCamera);
     testSoundBtn.addEventListener("click", testSound);
-    closeBtn.addEventListener("click", closeScanner);
+    closeBtn.addEventListener("click", stopCamera);
   </script>
 </body>
 </html>
