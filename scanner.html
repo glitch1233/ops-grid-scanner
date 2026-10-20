@@ -13,8 +13,7 @@
 
     body {
       margin: 0;
-      padding: 24px 16px;
-      min-height: 100vh;
+      padding: 20px;
       background: #0b1220;
       color: #f1f5f9;
       font-family: Arial, Tahoma, sans-serif;
@@ -22,9 +21,9 @@
     }
 
     .card {
-      max-width: 480px;
-      margin: 20px auto;
-      padding: 24px;
+      max-width: 500px;
+      margin: 15px auto;
+      padding: 20px;
       background: #111c2e;
       border: 1px solid #243449;
       border-radius: 18px;
@@ -35,26 +34,26 @@
     #reader {
       width: 100%;
       margin: 20px auto;
-      overflow: hidden;
-      border-radius: 12px;
     }
 
     #status {
-      white-space: pre-line;
+      padding: 12px;
+      background: #0b1220;
+      border-radius: 10px;
       line-height: 1.8;
-      color: #cbd5e1;
+      overflow-wrap: anywhere;
     }
 
     button {
       width: 100%;
       padding: 14px;
+      margin-top: 10px;
       border: 0;
       border-radius: 10px;
       background: #0284c7;
       color: white;
       font-size: 16px;
       font-weight: bold;
-      cursor: pointer;
     }
 
     .hint {
@@ -71,13 +70,16 @@
     <h3>ماسح QR لتسجيل الحضور</h3>
 
     <p class="hint">
-      اضغط تشغيل الكاميرا ووجّهها إلى QR الموظف.
+      قرّب الرمز من الكاميرا، وثبّت الهاتف وتأكد من وضوح الإضاءة.
     </p>
 
     <div id="reader"></div>
-    <p id="status">اضغط على الزر لتشغيل الكاميرا.</p>
 
-    <button id="startBtn" type="button">تشغيل الكاميرا</button>
+    <p id="status">جارٍ تجهيز الماسح...</p>
+
+    <button id="startBtn" type="button">
+      تشغيل الكاميرا
+    </button>
   </main>
 
   <script>
@@ -85,88 +87,130 @@
     const startBtn = document.getElementById("startBtn");
 
     let scanner = null;
-    let busy = false;
+    let started = false;
+    let processing = false;
 
     function extractToken(text) {
       const value = String(text || "").trim();
 
       try {
         const url = new URL(value);
-        return url.searchParams.get("token") || "";
+        const token = url.searchParams.get("token");
+
+        if (token) return token.trim();
+
+        // لو الرمز نفسه Token وليس رابطًا
+        if (/^[a-zA-Z0-9_-]{16,128}$/.test(value)) {
+          return value;
+        }
+
+        return "";
       } catch (_) {
-        // السماح برمز مباشر فقط، وليس نصًا عشوائيًا.
         return /^[a-zA-Z0-9_-]{16,128}$/.test(value)
           ? value
           : "";
       }
     }
 
-    startBtn.addEventListener("click", async () => {
-      if (scanner || busy) return;
+    async function handleScan(decodedText) {
+      if (processing) return;
 
-      busy = true;
+      processing = true;
+
+      statusBox.textContent = "تمت قراءة QR بنجاح. جارٍ فحص محتواه...";
+
+      const token = extractToken(decodedText);
+
+      if (!token) {
+        statusBox.textContent =
+          "الكاميرا قرأت QR، لكن محتواه ليس Token صالحًا أو رابطًا يحتوي على ?token=.\n" +
+          "راجع محتوى QR الذي تستخدمه.";
+        processing = false;
+        return;
+      }
+
+      if (!window.opener || window.opener.closed) {
+        statusBox.textContent =
+          "تمت قراءة الرمز، لكن صفحة الحضور الأصلية غير مفتوحة.\n" +
+          "افتح الماسح من زر صفحة OPS-GRID.";
+        processing = false;
+        return;
+      }
+
+      statusBox.textContent =
+        "تمت القراءة. جارٍ إرسال الرمز لصفحة الحضور...";
+
+      try {
+        if (scanner && started) {
+          await scanner.stop();
+          started = false;
+        }
+      } catch (error) {
+        console.warn("Scanner stop:", error);
+      }
+
+      window.opener.postMessage(
+        {
+          type: "EMPLOYEE_QR_SCANNED",
+          token: token
+        },
+        "https://script.google.com"
+      );
+
+      statusBox.textContent =
+        "تم إرسال الرمز. ارجع إلى صفحة الحضور.";
+
+      window.close();
+    }
+
+    startBtn.addEventListener("click", async () => {
+      if (started) return;
+
+      if (typeof Html5Qrcode === "undefined") {
+        statusBox.textContent =
+          "تعذر تحميل مكتبة قراءة QR. تأكد من الإنترنت وأعد تحميل الصفحة.";
+        return;
+      }
+
       startBtn.disabled = true;
       statusBox.textContent = "جارٍ تشغيل الكاميرا...";
 
       try {
-        scanner = new Html5Qrcode("reader");
+        scanner = new Html5Qrcode("reader", {
+          verbose: false,
+          formatsToSupport: [
+            Html5QrcodeSupportedFormats.QR_CODE
+          ],
+          useBarCodeDetectorIfSupported: false
+        });
 
         await scanner.start(
           { facingMode: "environment" },
           {
-            fps: 10,
-            qrbox: { width: 240, height: 240 },
+            fps: 12,
             aspectRatio: 1
+            // بدون qrbox لتجربة القراءة على كامل الصورة
           },
-          async (decodedText) => {
-            if (busy) return;
-
-            const token = extractToken(decodedText);
-
-            if (!token) {
-              statusBox.textContent =
-                "الرمز لا يحتوي على Token صالح.";
-              return;
-            }
-
-            if (!window.opener || window.opener.closed) {
-              statusBox.textContent =
-                "افتح الماسح من زر صفحة الحضور الأصلية.";
-              return;
-            }
-
-            busy = true;
-            statusBox.textContent =
-              "تمت قراءة الرمز، جارٍ إرساله لصفحة الحضور...";
-
-            try {
-              await scanner.stop();
-            } catch (_) {}
-
-            // صفحة الحضور ستتحقق من مصدر الرسالة قبل قبولها.
-            window.opener.postMessage(
-              {
-                type: "EMPLOYEE_QR_SCANNED",
-                token: token
-              },
-              "*"
-            );
-
-            window.close();
+          handleScan,
+          function() {
+            // عدم عرض خطأ مع كل إطار لا يحتوي على QR.
           }
         );
 
-        busy = false;
+        started = true;
         statusBox.textContent =
-          "الكاميرا تعمل. وجّهها إلى QR الموظف.";
+          "الكاميرا تعمل والماسح يبحث عن QR.\n" +
+          "لو لم يلتقط الرمز، قرّبه وجرّب تحسين الإضاءة.";
+
+        startBtn.textContent = "الكاميرا تعمل";
 
       } catch (error) {
         scanner = null;
-        busy = false;
+        started = false;
         startBtn.disabled = false;
 
         statusBox.textContent =
-          "تعذر تشغيل الكاميرا: " +
+          "تعذر تشغيل الماسح: " +
           (error.message || String(error));
       }
     });
